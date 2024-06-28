@@ -479,7 +479,7 @@ class _Samples():  # pylint:disable=too-few-public-methods
         logger.debug("Resizing sample: (side: '%s', sample.shape: %s, target_size: %s, scale: %s)",
                      side, sample.shape, target_size, scale)
         interpn = cv2.INTER_CUBIC if scale > 1.0 else cv2.INTER_AREA
-        retval = np.array([cv2.resize(img, (target_size, target_size), interpn)
+        retval = np.array([cv2.resize(img, (target_size, target_size), interpolation=interpn)
                            for img in sample])
         logger.debug("Resized sample: (side: '%s' shape: %s)", side, retval.shape)
         return retval
@@ -672,24 +672,23 @@ class _Samples():  # pylint:disable=too-few-public-methods
         list
             List of :class:`numpy.ndarray` faces with the opaque mask layer applied
         """
-        orig_masks = 1 - np.rint(masks)
+        orig_masks = 1. - masks
         masks3: list[np.ndarray] | np.ndarray = []
 
         if faces[-1].shape[-1] == 4:  # Mask contained in alpha channel of predictions
-            pred_masks = [1 - np.rint(face[..., -1])[..., None] for face in faces[-2:]]
+            pred_masks = [1. - face[..., -1][..., None] for face in faces[-2:]]
             faces[-2:] = [face[..., :-1] for face in faces[-2:]]
             masks3 = [orig_masks, *pred_masks]
         else:
             masks3 = np.repeat(np.expand_dims(orig_masks, axis=0), 3, axis=0)
 
         retval: list[np.ndarray] = []
-        alpha = 1.0 - self._mask_opacity
-        for previews, compiled_masks in zip(faces, masks3):
-            overlays = previews.copy()
-            overlays[np.where((compiled_masks == 1.).all(axis=3))] = self._mask_color
-            retval.append(np.array([cv2.addWeighted(img, alpha, ovl, self._mask_opacity, 0)
-                                    for img, ovl in zip(previews, overlays)]))
-
+        overlays3 = np.ones_like(faces) * self._mask_color
+        for previews, overlays, compiled_masks in zip(faces, overlays3, masks3):
+            compiled_masks *= self._mask_opacity
+            overlays *= compiled_masks
+            previews *= (1. - compiled_masks)
+            retval.append(previews + overlays)
         logger.debug("masked shapes: %s", [faces.shape for faces in retval])
         return retval
 
